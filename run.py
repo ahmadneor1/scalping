@@ -3,16 +3,19 @@ import ccxt.pro as ccxtpro
 import pandas as pd
 import requests
 
-from config import MEXC_API_KEY, MEXC_SECRET_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, DRY_RUN
+from scalping.config import MEXC_API_KEY, MEXC_SECRET_KEY, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, DRY_RUN
 
-SYMBOL = 'SOL/USDT:USDT'    
-TIMEFRAME = '1m'            
-LEVERAGE = 100              
-MARGIN_PER_TRADE = 5        
+# Ubah simbol koin entry menjadi LSK Futures (Swap)
+SYMBOL = 'LSK/USDT:USDT'    
+TIMEFRAME = '1m'             
+LEVERAGE = 15             
+MARGIN_PER_TRADE = 1
 
 STOP_LOSS_PCT = 0.003       # 0.3%
 TAKE_PROFIT_PCT = 0.006     # 0.6%
 TRAILING_TRIGGER = 0.002    # 0.2%
+
+COIN_NAME = SYMBOL.split('/')[0]  # Mengambil nama koin (LSK) untuk notifikasi
 
 def send_telegram_alert(message):
     """Mengirimkan laporan status penting ke Telegram."""
@@ -40,7 +43,7 @@ def calculate_indicators(df):
 async def run_bot():
     """Fungsi utama dengan dukungan mode Dry Run dan Auto-Reconnect."""
     mode_str = "🧪 SIMULASI (DRY RUN)" if DRY_RUN else "🔴 LIVE TRADING RIIL"
-    print(f"[INFO] Bot diinisialisasi dalam mode: {mode_str}")
+    print(f"[INFO] Bot diinisialisasi dalam mode: {mode_str} | Target Symbol: {SYMBOL}")
 
     while True:
         exchange = ccxtpro.mexc({
@@ -74,7 +77,7 @@ async def run_bot():
             last_candle_time = 0
 
             print(f"🚀 Bot Scalping Berjalan ({mode_str})...")
-            send_telegram_alert(f"Bot Berhasil Dinyalakan dalam mode: {mode_str}")
+            send_telegram_alert(f"Bot Berhasil Dinyalakan untuk {SYMBOL} dalam mode: {mode_str}")
 
             while True:
                 ticker = await exchange.watch_ticker(SYMBOL)
@@ -93,7 +96,7 @@ async def run_bot():
                     except Exception as err_ohlcv:
                         print(f"[ERROR Fetch OHLCV]: {err_ohlcv}")
 
-                print(f"⚡ [{mode_str}] Harga: ${last_close:.2f} | RSI: {last_rsi:.1f} | EMA200: ${last_ema:.2f}", end='\r')
+                print(f"⚡ [{mode_str}] {COIN_NAME} Harga: ${last_close:.4f} | RSI: {last_rsi:.1f} | EMA200: ${last_ema:.4f}", end='\r')
 
                 # Logika Entri Posisi
                 if not in_position:
@@ -105,13 +108,13 @@ async def run_bot():
                         position_side = 'LONG'
 
                         if DRY_RUN:
-                            print(f"\n🧪 [DRY RUN] SIMULASI OPEN LONG | Price: ${entry_price:.2f} | SL: ${current_sl:.2f} | TP: ${current_tp:.2f}")
+                            print(f"\n🧪 [DRY RUN] SIMULASI OPEN LONG {COIN_NAME} | Price: ${entry_price:.4f} | SL: ${current_sl:.4f} | TP: ${current_tp:.4f}")
                         else:
-                            print(f"\n🟢 [LIVE ORDER] OPEN LONG | Price: ${entry_price:.2f} | SL: ${current_sl:.2f} | TP: ${current_tp:.2f}")
+                            print(f"\n🟢 [LIVE ORDER] OPEN LONG {COIN_NAME} | Price: ${entry_price:.4f} | SL: ${current_sl:.4f} | TP: ${current_tp:.4f}")
                             await exchange.create_limit_buy_order(SYMBOL, qty, entry_price)
 
                         in_position = True
-                        send_telegram_alert(f"🟢 OPEN LONG SOL\nEntry: ${entry_price:.2f}\nTP: ${current_tp:.2f}\nSL: ${current_sl:.2f}")
+                        send_telegram_alert(f"🟢 OPEN LONG {COIN_NAME}\nEntry: ${entry_price:.4f}\nTP: ${current_tp:.4f}\nSL: ${current_sl:.4f}")
 
                     elif last_rsi > 70 and last_close < last_ema:
                         entry_price = last_close
@@ -121,13 +124,13 @@ async def run_bot():
                         position_side = 'SHORT'
 
                         if DRY_RUN:
-                            print(f"\n🧪 [DRY RUN] SIMULASI OPEN SHORT | Price: ${entry_price:.2f} | SL: ${current_sl:.2f} | TP: ${current_tp:.2f}")
+                            print(f"\n🧪 [DRY RUN] SIMULASI OPEN SHORT {COIN_NAME} | Price: ${entry_price:.4f} | SL: ${current_sl:.4f} | TP: ${current_tp:.4f}")
                         else:
-                            print(f"\n🔴 [LIVE ORDER] OPEN SHORT | Price: ${entry_price:.2f} | SL: ${current_sl:.2f} | TP: ${current_tp:.2f}")
+                            print(f"\n🔴 [LIVE ORDER] OPEN SHORT {COIN_NAME} | Price: ${entry_price:.4f} | SL: ${current_sl:.4f} | TP: ${current_tp:.4f}")
                             await exchange.create_limit_sell_order(SYMBOL, qty, entry_price)
 
                         in_position = True
-                        send_telegram_alert(f"🔴 OPEN SHORT SOL\nEntry: ${entry_price:.2f}\nTP: ${current_tp:.2f}\nSL: ${current_sl:.2f}")
+                        send_telegram_alert(f"🔴 OPEN SHORT {COIN_NAME}\nEntry: ${entry_price:.4f}\nTP: ${current_tp:.4f}\nSL: ${current_sl:.4f}")
 
                 # Manajemen Posisi Aktif (TP / SL / Trailing Stop)
                 else:
@@ -136,21 +139,21 @@ async def run_bot():
                             new_sl = last_close * (1 - STOP_LOSS_PCT)
                             if new_sl > current_sl:
                                 current_sl = new_sl
-                                print(f"\n📈 Trailing Stop Naik: ${current_sl:.2f}")
+                                print(f"\n📈 Trailing Stop Naik: ${current_sl:.4f}")
 
                         if last_close >= current_tp or last_close <= current_sl:
                             pnl_pct = ((last_close - entry_price) / entry_price) * LEVERAGE * 100
-                            print(f"\n⚡ Posisi LONG Tertutup di Harga: ${last_close:.2f} | Estimasi PnL: {pnl_pct:.2f}%")
+                            print(f"\n⚡ Posisi LONG {COIN_NAME} Tertutup di Harga: ${last_close:.4f} | Estimasi PnL: {pnl_pct:.2f}%")
                             
                             if not DRY_RUN:
                                 try:
                                     close_qty = (MARGIN_PER_TRADE * LEVERAGE) / entry_price
                                     await exchange.create_market_sell_order(SYMBOL, close_qty, params={'reduceOnly': True})
-                                    print("🔴 [LIVE ORDER] Posisi LONG berhasil ditutup di bursa.")
+                                    print(f"🔴 [LIVE ORDER] Posisi LONG {COIN_NAME} berhasil ditutup di bursa.")
                                 except Exception as err_close:
                                     print(f"[ERROR CLOSE ORDER]: {err_close}")
 
-                            send_telegram_alert(f"⚡ LONG Tertutup di Harga: ${last_close:.2f}\nEstimasi PnL: {pnl_pct:.2f}%")
+                            send_telegram_alert(f"⚡ LONG {COIN_NAME} Tertutup di Harga: ${last_close:.4f}\nEstimasi PnL: {pnl_pct:.2f}%")
                             in_position = False
 
                     elif position_side == 'SHORT':
@@ -158,21 +161,21 @@ async def run_bot():
                             new_sl = last_close * (1 + STOP_LOSS_PCT)
                             if new_sl < current_sl:
                                 current_sl = new_sl
-                                print(f"\n📉 Trailing Stop Turun: ${current_sl:.2f}")
+                                print(f"\n📉 Trailing Stop Turun: ${current_sl:.4f}")
 
                         if last_close <= current_tp or last_close >= current_sl:
                             pnl_pct = ((entry_price - last_close) / entry_price) * LEVERAGE * 100
-                            print(f"\n⚡ Posisi SHORT Tertutup di Harga: ${last_close:.2f} | Estimasi PnL: {pnl_pct:.2f}%")
+                            print(f"\n⚡ Posisi SHORT {COIN_NAME} Tertutup di Harga: ${last_close:.4f} | Estimasi PnL: {pnl_pct:.2f}%")
                             
                             if not DRY_RUN:
                                 try:
                                     close_qty = (MARGIN_PER_TRADE * LEVERAGE) / entry_price
                                     await exchange.create_market_buy_order(SYMBOL, close_qty, params={'reduceOnly': True})
-                                    print("🟢 [LIVE ORDER] Posisi SHORT berhasil ditutup di bursa.")
+                                    print(f"🟢 [LIVE ORDER] Posisi SHORT {COIN_NAME} berhasil ditutup di bursa.")
                                 except Exception as err_close:
                                     print(f"[ERROR CLOSE ORDER]: {err_close}")
 
-                            send_telegram_alert(f"⚡ SHORT Tertutup di Harga: ${last_close:.2f}\nEstimasi PnL: {pnl_pct:.2f}%")
+                            send_telegram_alert(f"⚡ SHORT {COIN_NAME} Tertutup di Harga: ${last_close:.4f}\nEstimasi PnL: {pnl_pct:.2f}%")
                             in_position = False
 
         except (ccxtpro.NetworkError, ccxtpro.ExchangeNotAvailable, asyncio.TimeoutError) as net_err:
